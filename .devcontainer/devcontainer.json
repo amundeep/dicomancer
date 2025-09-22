@@ -1,0 +1,21 @@
+{
+  "name": "Rust Dev",
+  "context": "..",
+  "dockerFile": "../Dockerfile",
+  "workspaceFolder": "/app",
+  "remoteUser": "root",
+  "mounts": [
+    "source=${localWorkspaceFolder},target=/app,type=bind"
+  ],
+  "settings": {
+    "terminal.integrated.defaultProfile.linux": "bash",
+    "rust-analyzer.cargo.runBuildScripts": true,
+    "rust-analyzer.checkOnSave": true,
+    "rust-analyzer.check.command": "clippy"
+  },
+  "extensions": [
+    "rust-lang.rust-analyzer",
+    "tamasfe.even-better-toml",
+    "crates-dependencies"
+  ]
+}
