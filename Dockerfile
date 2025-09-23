@@ -1,4 +1,4 @@
-FROM rust:1.81-slim
+FROM rust:1.82-slim
 
 # Install build deps commonly needed by crates
 RUN apt-get update && apt-get install -y \

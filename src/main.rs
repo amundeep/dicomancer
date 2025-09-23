@@ -1,8 +1,10 @@
+mod model;
+
 use iced::widget::{button, column, container, row, scrollable, text, text_input, Column};
 use iced::{Alignment, Element, Length, Padding, Theme};
 
 fn main() -> iced::Result {
-    iced::application("Grocery List App", GroceryList::update, GroceryList::view)
+    iced::application("Dicomancer", GroceryList::update, GroceryList::view)
         .theme(GroceryList::theme)
         .default_font(iced::Font::DEFAULT)
         .centered()
