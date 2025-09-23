@@ -2,8 +2,20 @@
   "name": "Rust Dev",
   "context": "..",
   "dockerFile": "../Dockerfile",
-  "workspaceMount": "source=${localWorkspaceFolder},target=/app,type=bind,consistency=cached",
   "workspaceFolder": "/app",
+  "mounts": [
+    "source=${localWorkspaceFolder},target=/app,type=bind,consistency=delegated",
+    "source=cargo-target,target=/usr/local/cargo-target,type=volume"
+  ],
+  "remoteEnv": {
+    "CARGO_TARGET_DIR": "/usr/local/cargo-target"
+  },
+  "runArgs": [
+    "--env=DISPLAY=host.docker.internal:0",
+    "--volume=/tmp/.X11-unix:/tmp/.X11-unix",
+    "--env=XDG_RUNTIME_DIR=/tmp/runtime",
+    "--env=WGPU_BACKEND=gl"
+  ],
   "remoteUser": "root",
   "customizations": {
     "vscode": {
