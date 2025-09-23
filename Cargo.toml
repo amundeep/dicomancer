@@ -4,5 +4,6 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-iced = "0.13.1"
-rfd = "0.15"
+iced = { version = "0.13.1", features = ["tokio"] }
+rfd = { version = "0.15.4", default-features = false, features = ["gtk3"] }
+dicom = { version = "0.8.2" }

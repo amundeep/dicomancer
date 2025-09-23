@@ -1,100 +1,84 @@
-mod model;
+use std::fs;
 
-use iced::widget::{button, column, container, row, scrollable, text, text_input, Column};
-use iced::{Alignment, Element, Length, Padding, Theme};
+use iced::widget::{button, column, text};
+use iced::{application, Alignment, Element, Length, Settings, Task, Theme};
+use rfd::AsyncFileDialog;
 
-fn main() -> iced::Result {
-    iced::application("Dicomancer", GroceryList::update, GroceryList::view)
-        .theme(GroceryList::theme)
-        .default_font(iced::Font::DEFAULT)
-        .centered()
+pub fn main() -> iced::Result {
+    application("Dicomancer", App::update, App::view)
+        .theme(App::theme)
         .run()
 }
 
-struct GroceryList {
-    grocery_items: Vec<String>,
-    input_value: String,
-}
-
-impl Default for GroceryList {
-    fn default() -> Self {
-        Self {
-            grocery_items: vec!["Eggs".to_owned(), "Milk".to_owned(), "Flour".to_owned()],
-            input_value: String::default(),
-        }
-    }
+#[derive(Default)]
+struct App {
+    file_content: Option<String>,
+    last_error: Option<String>,
 }
 
 #[derive(Debug, Clone)]
 enum Message {
-    InputValue(String),
-    Submitted,
-    DeleteItem(usize),
+    PickFile,
+    FileLoaded(Result<String, String>),
 }
 
-impl GroceryList {
-    fn view(&self) -> Element<Message> {
-        container(
-            column!(
-                Self::items_list_view(&self.grocery_items),
-                row!(
-                    text_input("Input grocery item", &self.input_value)
-                        .on_input(Message::InputValue)
-                        .on_submit(Message::Submitted),
-                    button("Submit").on_press(Message::Submitted),
-                )
-                .spacing(30)
-                .padding(Padding::from(30)),
-            )
-            .align_x(Alignment::Center),
-        )
-        .height(Length::Fill)
-        .width(Length::Fill)
-        .align_x(Alignment::Center)
-        .align_y(Alignment::Center)
-        .into()
-    }
-
-    fn update(&mut self, message: Message) {
+impl App {
+    fn update(&mut self, message: Message) -> Task<Message> {
         match message {
-            Message::InputValue(value) => self.input_value = value,
-            Message::Submitted => {
-                self.grocery_items.push(self.input_value.clone());
-                self.input_value = String::default();
+            Message::PickFile => {
+                // Spawn async task to show file dialog and read content
+                Task::perform(
+                    async {
+                        let picked = AsyncFileDialog::new().pick_file().await;
+                        match picked {
+                            Some(handle) => {
+                                let path = handle.path().to_owned();
+                                match fs::read_to_string(&path) {
+                                    Ok(content) => Ok(content),
+                                    Err(e) => Err(format!("Failed to read file: {e}")),
+                                }
+                            }
+                            None => Err("No file selected".into()),
+                        }
+                    },
+                    Message::FileLoaded,
+                )
             }
-            Message::DeleteItem(item) => {
-                self.grocery_items.remove(item);
+            Message::FileLoaded(result) => {
+                match result {
+                    Ok(content) => {
+                        self.file_content = Some(content);
+                        self.last_error = None;
+                    }
+                    Err(e) => {
+                        self.last_error = Some(e);
+                        self.file_content = None;
+                    }
+                }
+                Task::none()
             }
         }
+    }
+
+    fn view(&self) -> Element<Message> {
+        column![
+            button("Pick File").on_press(Message::PickFile),
+            if let Some(content) = &self.file_content {
+                text(format!("Loaded file with {} bytes", content.len()))
+            } else if let Some(err) = &self.last_error {
+                text(format!("Error: {err}"))
+            } else {
+                text("No file loaded")
+            }
+        ]
+        .padding(20)
+        .align_x(Alignment::Center)
+        .width(Length::Fill)
+        .height(Length::Fill)
+        .into()
     }
 
     fn theme(&self) -> Theme {
         Theme::Dark
-    }
-
-    fn items_list_view(items: &[String]) -> Element<Message> {
-        let mut column = Column::new()
-            .spacing(20)
-            .align_x(Alignment::Center)
-            .width(Length::Fill);
-
-        for (index, item) in items.iter().enumerate() {
-            column = column.push(Self::grocery_item(index, item));
-        }
-
-        scrollable(container(column))
-            .width(250.0)
-            .height(300)
-            .into()
-    }
-
-    fn grocery_item(index: usize, value: &str) -> Element<Message> {
-        row![
-            text(value),
-            button("Delete").on_press(Message::DeleteItem(index))
-        ]
-        .align_y(Alignment::Center)
-        .spacing(30)
-        .into()
     }
 }

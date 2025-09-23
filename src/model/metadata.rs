@@ -6,7 +6,11 @@ struct Metadata {
 impl Default for Metadata {
     fn default() -> Self {
         Self {
-            elements: vec!["StudyInstanceUID".to_owned(), "SeriesInstanceUID".to_owned(), "SOPInstanceUID".to_owned()],
+            elements: vec![
+                "StudyInstanceUID".to_owned(),
+                "SeriesInstanceUID".to_owned(),
+                "SOPInstanceUID".to_owned(),
+            ],
             input_value: String::default(),
         }
     }

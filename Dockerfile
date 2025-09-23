@@ -1,10 +1,11 @@
-FROM rust:1.82-slim
+FROM rustlang/rust:nightly-slim
 
 # Install build deps commonly needed by crates
 RUN apt-get update && apt-get install -y \
     libx11-dev libxext-dev libxrandr-dev libxi-dev \
     libxcursor-dev libxinerama-dev libgl1-mesa-dev \
     libxkbcommon-x11-0 fonts-dejavu fontconfig \
+    x11-xserver-utils x11-apps libgtk-3-dev \
     pkg-config libssl-dev build-essential clang cmake git vim \
     && rm -rf /var/lib/apt/lists/*
 
