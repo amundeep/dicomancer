@@ -1,7 +1,7 @@
 use std::fs;
 
 use iced::widget::{button, column, text};
-use iced::{application, Alignment, Element, Length, Settings, Task, Theme};
+use iced::{application, Alignment, Element, Length, Task, Theme};
 use rfd::AsyncFileDialog;
 
 pub fn main() -> iced::Result {
@@ -60,7 +60,7 @@ impl App {
         }
     }
 
-    fn view(&self) -> Element<Message> {
+    fn view(&self) -> Element<'_, Message> {
         column![
             button("Pick File").on_press(Message::PickFile),
             if let Some(content) = &self.file_content {
