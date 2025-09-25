@@ -5,6 +5,9 @@ use iced::{application, Alignment, Element, Length, Task, Theme};
 use rfd::AsyncFileDialog;
 
 pub fn main() -> iced::Result {
+    env_logger::Builder::from_default_env()
+        .format_timestamp_secs()
+        .init();
     application("Dicomancer", App::update, App::view)
         .theme(App::theme)
         .run()
@@ -34,8 +37,14 @@ impl App {
                             Some(handle) => {
                                 let path = handle.path().to_owned();
                                 match fs::read_to_string(&path) {
-                                    Ok(content) => Ok(content),
-                                    Err(e) => Err(format!("Failed to read file: {e}")),
+                                    Ok(content) => {
+                                        log::info!("Loaded file {}, {} bytes", path.display(), content.len());
+                                        Ok(content)
+                                    },
+                                    Err(e) => {
+                                        log::error!("Failed reading {}: {e}", path.display());
+                                        Err(format!("Failed to read file: {e}"))
+                                    }
                                 }
                             }
                             None => Err("No file selected".into()),
@@ -61,6 +70,7 @@ impl App {
     }
 
     fn view(&self) -> Element<'_, Message> {
+        log::info!("Initializing view...");
         column![
             button("Pick File").on_press(Message::PickFile),
             if let Some(content) = &self.file_content {
