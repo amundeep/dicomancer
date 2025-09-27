@@ -6,6 +6,6 @@ edition = "2021"
 [dependencies]
 log = "0.4"
 env_logger = "0.11.8"
-iced = { version = "0.13.1", features = ["tokio"] }
+iced = { version = "0.13.1", features = ["tokio", "image"] }
 rfd = { version = "0.15.4" }
-dicom = { version = "0.8.2" }
+dicom = { version = "0.8.2", features = ["image"] }
