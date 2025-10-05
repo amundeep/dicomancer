@@ -129,7 +129,7 @@ impl FrameImagePipeline {
 }
 
 fn rgb_interleaved_to_rgba(samples: &[u8]) -> Result<Vec<u8>, String> {
-    if samples.len() % 3 != 0 {
+    if !samples.len().is_multiple_of(3) {
         return Err(format!(
             "RGB buffer length {} is not divisible by 3",
             samples.len()
@@ -165,7 +165,7 @@ fn rgb_planar_to_rgba_u8(samples: &[u8], pixel_count: usize) -> Result<Vec<u8>, 
 }
 
 fn rgb_interleaved_u16_to_rgba(samples: &[u16]) -> Result<Vec<u8>, String> {
-    if samples.len() % 3 != 0 {
+    if !samples.len().is_multiple_of(3) {
         return Err(format!(
             "RGB buffer length {} is not divisible by 3",
             samples.len()
