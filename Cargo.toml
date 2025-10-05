@@ -9,3 +9,23 @@ env_logger = "0.11.8"
 iced = { version = "0.13.1", features = ["tokio", "image"] }
 rfd = { version = "0.15.4" }
 dicom = { version = "0.8.2", features = ["image"] }
+
+[package.metadata.bundle]
+name = "Dicomancer"
+identifier = "com.amundeep.dicomancer"
+version = "0.1.0"
+category = "Medical"
+short_description = "DICOM metadata editor and analyzer"
+long_description = """
+Dicomancer is a cross-platform DICOM metadata editor, analyzer, and bulk editor.
+"""
+copyright = "© 2025 Amundeep Singh"
+
+[package.metadata.bundle.macos]
+icon = ["assets/icon.icns"]
+
+[package.metadata.bundle.windows]
+icon = ["assets/icon.ico"]
+
+[package.metadata.bundle.linux]
+icon = ["assets/icon.png"]

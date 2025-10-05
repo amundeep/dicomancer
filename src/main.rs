@@ -5,14 +5,15 @@ use std::path::PathBuf;
 
 use dicom::core::dictionary::DataDictionary;
 use dicom::core::header::Header;
-use dicom::core::value::Value;
-use dicom::core::Tag;
+use dicom::core::value::{PrimitiveValue, Value};
+use dicom::core::{Tag, VR};
 use dicom::dictionary_std::StandardDataDictionary;
 use dicom::object::{open_file, DefaultDicomObject};
+use iced::border::{Border, Radius};
 use iced::widget::image::Handle;
 use iced::widget::text::Wrapping;
 use iced::widget::{button, column, container, row, scrollable, text, Image, Space};
-use iced::{application, Alignment, Element, Length, Task, Theme};
+use iced::{application, Alignment, Background, Color, Element, Length, Shadow, Task, Theme};
 use rfd::AsyncFileDialog;
 
 use crate::image_pipeline::FrameImagePipeline;
@@ -32,6 +33,7 @@ struct App {
     entries: Vec<DicomEntry>,
     selected_instance: Option<usize>,
     collapsed_nodes: BTreeSet<TreeNodeKey>,
+    tree_view_mode: TreeViewMode,
     last_error: Option<String>,
 }
 
@@ -45,6 +47,7 @@ struct DicomView {
 #[derive(Debug, Clone)]
 struct MetadataRow {
     tag: String,
+    vr: String,
     alias: String,
     value: String,
 }
@@ -55,6 +58,7 @@ enum Message {
     FilesLoaded(Vec<Result<DicomEntry, String>>),
     SelectInstance(usize),
     ToggleNode(TreeNodeKey),
+    SetTreeViewMode(TreeViewMode),
 }
 
 #[derive(Debug, Clone)]
@@ -78,6 +82,24 @@ enum TreeNodeKey {
         study: String,
         series: String,
     },
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum TreeViewMode {
+    FileBrowser,
+    UidTree,
+}
+
+impl Default for TreeViewMode {
+    fn default() -> Self {
+        TreeViewMode::FileBrowser
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum SegmentedPosition {
+    Left,
+    Right,
 }
 
 impl TreeNodeKey {
@@ -154,6 +176,12 @@ impl App {
                 }
                 Task::none()
             }
+            Message::SetTreeViewMode(mode) => {
+                if self.tree_view_mode != mode {
+                    self.tree_view_mode = mode;
+                }
+                Task::none()
+            }
         }
     }
 
@@ -174,8 +202,9 @@ impl App {
         let metadata_content: Element<'_, Message> = if let Some(view) = selected_view {
             let mut table = column![row![
                 text("Tag").width(Length::FillPortion(1)),
-                text("Alias").width(Length::FillPortion(1)),
-                text("Value").width(Length::FillPortion(3)),
+                text("VR").width(Length::FillPortion(1)),
+                text("Alias").width(Length::FillPortion(2)),
+                text("Value").width(Length::FillPortion(4)),
             ]
             .spacing(12)];
 
@@ -183,9 +212,10 @@ impl App {
                 table = table.push(
                     row![
                         text(&row.tag).width(Length::FillPortion(1)),
-                        text(&row.alias).width(Length::FillPortion(1)),
+                        text(&row.vr).width(Length::FillPortion(1)),
+                        text(&row.alias).width(Length::FillPortion(2)),
                         text(&row.value)
-                            .width(Length::FillPortion(3))
+                            .width(Length::FillPortion(4))
                             .wrapping(Wrapping::Word),
                     ]
                     .spacing(12),
@@ -250,89 +280,139 @@ impl App {
 
         let mut root = column![text("Imported Instances").size(20)];
 
+        let toggle_row = row![
+            segmented_toggle_option(
+                "File Browser",
+                TreeViewMode::FileBrowser,
+                self.tree_view_mode,
+                SegmentedPosition::Left,
+            )
+            .width(Length::FillPortion(1)),
+            segmented_toggle_option(
+                "UID Tree",
+                TreeViewMode::UidTree,
+                self.tree_view_mode,
+                SegmentedPosition::Right,
+            )
+            .width(Length::FillPortion(1)),
+        ]
+        .spacing(0);
+
+        let toggle_row = container(toggle_row)
+            .padding(3)
+            .width(Length::Fill)
+            .style(segmented_container_style);
+
+        root = root.push(toggle_row);
+
         if self.entries.is_empty() {
-            return root.push(text("No files imported"));
+            return root.push(text("No files imported")).spacing(6);
         }
 
-        let mut grouped: BTreeMap<
-            &str,
-            BTreeMap<&str, BTreeMap<&str, BTreeMap<&str, Vec<usize>>>>,
-        > = BTreeMap::new();
-
-        for (idx, entry) in self.entries.iter().enumerate() {
-            let patient_map = grouped
-                .entry(entry.patient_id.as_str())
-                .or_insert_with(BTreeMap::new);
-            let study_map = patient_map
-                .entry(entry.study_instance_uid.as_str())
-                .or_insert_with(BTreeMap::new);
-            let series_map = study_map
-                .entry(entry.series_instance_uid.as_str())
-                .or_insert_with(BTreeMap::new);
-            series_map
-                .entry(entry.sop_instance_uid.as_str())
-                .or_insert_with(Vec::new)
-                .push(idx);
-        }
-
-        let arrow = |collapsed: bool| if collapsed { "▶" } else { "▼" };
-
-        for (patient_id, studies) in grouped {
-            let patient_key = TreeNodeKey::patient(patient_id);
-            let patient_collapsed = self.collapsed_nodes.contains(&patient_key);
-            let patient_label = format!("{} PatientID: {patient_id}", arrow(patient_collapsed));
-            root = root.push(row![
-                button(text(patient_label)).on_press(Message::ToggleNode(patient_key.clone())),
-            ]);
-
-            if patient_collapsed {
-                continue;
+        match self.tree_view_mode {
+            TreeViewMode::FileBrowser => {
+                for (index, entry) in self.entries.iter().enumerate() {
+                    let is_selected = self.selected_instance == Some(index);
+                    let path_text = entry.view.file_path.display().to_string();
+                    let button_label = if is_selected {
+                        format!("▶ {path_text}")
+                    } else {
+                        path_text
+                    };
+                    root = root.push(
+                        button(
+                            text(button_label)
+                                .wrapping(Wrapping::Word)
+                                .width(Length::Fill),
+                        )
+                        .on_press(Message::SelectInstance(index)),
+                    );
+                }
             }
+            TreeViewMode::UidTree => {
+                let mut grouped: BTreeMap<
+                    &str,
+                    BTreeMap<&str, BTreeMap<&str, BTreeMap<&str, Vec<usize>>>>,
+                > = BTreeMap::new();
 
-            for (study_uid, series_map) in studies {
-                let study_key = TreeNodeKey::study(patient_id, study_uid);
-                let study_collapsed = self.collapsed_nodes.contains(&study_key);
-                let study_label =
-                    format!("{} StudyInstanceUID: {study_uid}", arrow(study_collapsed));
-                root = root.push(row![
-                    Space::with_width(Length::Fixed(INDENT)),
-                    button(text(study_label)).on_press(Message::ToggleNode(study_key.clone())),
-                ]);
-
-                if study_collapsed {
-                    continue;
+                for (idx, entry) in self.entries.iter().enumerate() {
+                    let patient_map = grouped
+                        .entry(entry.patient_id.as_str())
+                        .or_insert_with(BTreeMap::new);
+                    let study_map = patient_map
+                        .entry(entry.study_instance_uid.as_str())
+                        .or_insert_with(BTreeMap::new);
+                    let series_map = study_map
+                        .entry(entry.series_instance_uid.as_str())
+                        .or_insert_with(BTreeMap::new);
+                    series_map
+                        .entry(entry.sop_instance_uid.as_str())
+                        .or_insert_with(Vec::new)
+                        .push(idx);
                 }
 
-                for (series_uid, sop_map) in series_map {
-                    let series_key = TreeNodeKey::series(patient_id, study_uid, series_uid);
-                    let series_collapsed = self.collapsed_nodes.contains(&series_key);
-                    let series_label = format!(
-                        "{} SeriesInstanceUID: {series_uid}",
-                        arrow(series_collapsed)
-                    );
-                    root = root.push(row![
-                        Space::with_width(Length::Fixed(INDENT * 2.0)),
-                        button(text(series_label))
-                            .on_press(Message::ToggleNode(series_key.clone())),
-                    ]);
+                let arrow = |collapsed: bool| if collapsed { "▶" } else { "▼" };
 
-                    if series_collapsed {
+                for (patient_id, studies) in grouped {
+                    let patient_key = TreeNodeKey::patient(patient_id);
+                    let patient_collapsed = self.collapsed_nodes.contains(&patient_key);
+                    let patient_label =
+                        format!("{} PatientID: {patient_id}", arrow(patient_collapsed));
+                    root = root.push(row![button(text(patient_label))
+                        .on_press(Message::ToggleNode(patient_key.clone())),]);
+
+                    if patient_collapsed {
                         continue;
                     }
 
-                    for (sop_uid, indices) in sop_map {
-                        for index in indices {
-                            let label = format!("SOPInstanceUID: {sop_uid}");
-                            let is_selected = self.selected_instance == Some(index);
-                            let button_label = if is_selected {
-                                format!("▶ {label}")
-                            } else {
-                                label
-                            };
+                    for (study_uid, series_map) in studies {
+                        let study_key = TreeNodeKey::study(patient_id, study_uid);
+                        let study_collapsed = self.collapsed_nodes.contains(&study_key);
+                        let study_label =
+                            format!("{} StudyInstanceUID: {study_uid}", arrow(study_collapsed));
+                        root = root.push(row![
+                            Space::with_width(Length::Fixed(INDENT)),
+                            button(text(study_label))
+                                .on_press(Message::ToggleNode(study_key.clone())),
+                        ]);
+
+                        if study_collapsed {
+                            continue;
+                        }
+
+                        for (series_uid, sop_map) in series_map {
+                            let series_key = TreeNodeKey::series(patient_id, study_uid, series_uid);
+                            let series_collapsed = self.collapsed_nodes.contains(&series_key);
+                            let series_label = format!(
+                                "{} SeriesInstanceUID: {series_uid}",
+                                arrow(series_collapsed)
+                            );
                             root = root.push(row![
-                                Space::with_width(Length::Fixed(INDENT * 3.0)),
-                                button(text(button_label)).on_press(Message::SelectInstance(index)),
+                                Space::with_width(Length::Fixed(INDENT * 2.0)),
+                                button(text(series_label))
+                                    .on_press(Message::ToggleNode(series_key.clone())),
                             ]);
+
+                            if series_collapsed {
+                                continue;
+                            }
+
+                            for (sop_uid, indices) in sop_map {
+                                for index in indices {
+                                    let label = format!("SOPInstanceUID: {sop_uid}");
+                                    let is_selected = self.selected_instance == Some(index);
+                                    let button_label = if is_selected {
+                                        format!("▶ {label}")
+                                    } else {
+                                        label
+                                    };
+                                    root = root.push(row![
+                                        Space::with_width(Length::Fixed(INDENT * 3.0)),
+                                        button(text(button_label))
+                                            .on_press(Message::SelectInstance(index)),
+                                    ]);
+                                }
+                            }
                         }
                     }
                 }
@@ -344,6 +424,108 @@ impl App {
 
     fn theme(&self) -> Theme {
         Theme::Dark
+    }
+}
+
+fn segmented_toggle_option<'a>(
+    label: &'a str,
+    mode: TreeViewMode,
+    current: TreeViewMode,
+    position: SegmentedPosition,
+) -> iced::widget::Button<'a, Message> {
+    let is_active = mode == current;
+    let content = container(text(label).size(14).wrapping(Wrapping::None))
+        .width(Length::Fill)
+        .height(Length::Fixed(32.0))
+        .align_x(Alignment::Center)
+        .align_y(Alignment::Center)
+        .padding([6, 16]);
+
+    button(content)
+        .padding(0)
+        .on_press(Message::SetTreeViewMode(mode))
+        .style(move |theme, status| segmented_button_style(theme, status, is_active, position))
+}
+
+fn segmented_container_style(theme: &Theme) -> iced::widget::container::Style {
+    let palette = theme.extended_palette();
+
+    iced::widget::container::Style {
+        background: Some(Background::Color(palette.background.strong.color)),
+        border: Border {
+            color: palette.background.strong.color.scale_alpha(0.6),
+            width: 1.0,
+            radius: Radius::new(999.0),
+        },
+        ..Default::default()
+    }
+}
+
+fn segmented_button_style(
+    theme: &Theme,
+    status: iced::widget::button::Status,
+    is_active: bool,
+    position: SegmentedPosition,
+) -> iced::widget::button::Style {
+    let palette = theme.extended_palette();
+
+    let mut background_color = if is_active {
+        palette.primary.strong.color
+    } else {
+        palette.background.strong.color.scale_alpha(0.4)
+    };
+
+    match status {
+        iced::widget::button::Status::Hovered => {
+            background_color = if is_active {
+                palette.primary.base.color
+            } else {
+                palette.background.base.color.scale_alpha(0.8)
+            };
+        }
+        iced::widget::button::Status::Pressed => {
+            background_color = if is_active {
+                palette.primary.base.color.scale_alpha(0.9)
+            } else {
+                palette.background.base.color.scale_alpha(0.9)
+            };
+        }
+        iced::widget::button::Status::Disabled => {
+            background_color = background_color.scale_alpha(0.5);
+        }
+        iced::widget::button::Status::Active => {}
+    }
+
+    let text_color = if is_active {
+        palette.primary.strong.text
+    } else {
+        palette.background.base.text
+    };
+
+    let radius = match position {
+        SegmentedPosition::Left => Radius {
+            top_left: 999.0,
+            top_right: 10.0,
+            bottom_right: 10.0,
+            bottom_left: 999.0,
+        },
+        SegmentedPosition::Right => Radius {
+            top_left: 10.0,
+            top_right: 999.0,
+            bottom_right: 999.0,
+            bottom_left: 10.0,
+        },
+    };
+
+    iced::widget::button::Style {
+        background: Some(Background::Color(background_color)),
+        text_color,
+        border: Border {
+            color: Color::TRANSPARENT,
+            width: 0.0,
+            radius,
+        },
+        shadow: Shadow::default(),
     }
 }
 
@@ -369,10 +551,12 @@ fn load_dicom(path: PathBuf) -> Result<DicomEntry, String> {
             .map(|entry| entry.alias)
             .unwrap_or("Unknown")
             .to_string();
-        let value = value_to_string(element.value());
+        let vr = element.vr();
+        let value = value_to_string(element.value(), vr);
 
         metadata.push(MetadataRow {
             tag: tag_text,
+            vr: vr.to_string().to_owned(),
             alias,
             value,
         });
@@ -405,11 +589,27 @@ fn extract_image_handle(object: &DefaultDicomObject) -> Option<Handle> {
     }
 }
 
-fn value_to_string<D: std::fmt::Debug>(value: &Value<D>) -> String {
+fn value_to_string<I, P>(value: &Value<I, P>, vr: VR) -> String {
     const MAX_LEN: usize = 120;
     let rendered = match value {
-        Value::Primitive(_) | Value::Sequence { .. } | Value::PixelSequence { .. } => {
-            format!("{value:?}")
+        Value::Primitive(primitive) => format_primitive_value(primitive, vr),
+        Value::Sequence(sequence) => {
+            let count = sequence.multiplicity() as usize;
+            let suffix = if count == 1 { "" } else { "s" };
+            format!("Sequence ({count} item{suffix})")
+        }
+        Value::PixelSequence(sequence) => {
+            let fragments = sequence.fragments().len();
+            let fragment_suffix = if fragments == 1 { "" } else { "s" };
+            let offset_entries = sequence.offset_table().len();
+            if offset_entries > 0 {
+                let offset_suffix = if offset_entries == 1 { "" } else { "s" };
+                format!(
+                    "Pixel data ({fragments} fragment{fragment_suffix}, offset table {offset_entries} entry{offset_suffix})"
+                )
+            } else {
+                format!("Pixel data ({fragments} fragment{fragment_suffix})")
+            }
         }
     };
 
@@ -424,6 +624,50 @@ fn value_to_string<D: std::fmt::Debug>(value: &Value<D>) -> String {
 
 fn format_tag(tag: Tag) -> String {
     format!("{:04X},{:04X}", tag.group(), tag.element())
+}
+
+fn format_primitive_value(value: &PrimitiveValue, vr: VR) -> String {
+    let mut rendered = match value {
+        PrimitiveValue::Empty => String::new(),
+        PrimitiveValue::Str(_)
+        | PrimitiveValue::Strs(_)
+        | PrimitiveValue::Date(_)
+        | PrimitiveValue::Time(_)
+        | PrimitiveValue::DateTime(_)
+        | PrimitiveValue::I16(_)
+        | PrimitiveValue::I32(_)
+        | PrimitiveValue::I64(_)
+        | PrimitiveValue::U16(_)
+        | PrimitiveValue::U32(_)
+        | PrimitiveValue::U64(_)
+        | PrimitiveValue::F32(_)
+        | PrimitiveValue::F64(_) => value.to_str().into_owned(),
+        PrimitiveValue::Tags(values) => values
+            .iter()
+            .map(|tag| format_tag(*tag))
+            .collect::<Vec<_>>()
+            .join("\\"),
+        PrimitiveValue::U8(_) => {
+            if is_binary_vr(vr) {
+                format!("Binary data ({} bytes)", value.calculate_byte_len())
+            } else {
+                value.to_str().into_owned()
+            }
+        }
+    };
+
+    if rendered.is_empty() && matches!(value, PrimitiveValue::Empty) {
+        rendered.push_str("(empty)");
+    }
+
+    rendered
+}
+
+fn is_binary_vr(vr: VR) -> bool {
+    matches!(
+        vr,
+        VR::OB | VR::OD | VR::OF | VR::OL | VR::OV | VR::OW | VR::UN
+    )
 }
 
 fn attribute_text(object: &DefaultDicomObject, name: &str) -> Option<String> {
